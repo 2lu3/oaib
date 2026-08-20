@@ -12,6 +12,14 @@ API.
 
 ## Usage
 
+### Install with uv
+
+Add `oaib` to your project's dependencies:
+
+```bash
+uv add oaib
+```
+
 ### Set OpenAI API Key
 
 
