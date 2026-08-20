@@ -1,7 +1,5 @@
-from typing import Union, Set, Coroutine
+from typing import Mapping, Optional, Set, Coroutine, Tuple
 
-import re
-from datetime import timedelta
 from asyncio import FIRST_COMPLETED, CancelledError, Queue
 from asyncio import wait, gather, create_task
 
@@ -48,11 +46,22 @@ async def close_queue(queue: Queue):
     return await queue.join()
 
 
-def get_limits(headers):
-    rpm = headers.get("x-ratelimit-limit-requests")
-    tpm = headers.get("x-ratelimit-limit-tokens")
+def _get_limit(headers: Mapping[str, str], header: str) -> Optional[int]:
+    value = headers.get(header)
+    if value is None:
+        return None
 
-    return int(rpm), int(tpm)
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def get_limits(headers: Mapping[str, str]) -> Tuple[Optional[int], Optional[int]]:
+    return (
+        _get_limit(headers, "x-ratelimit-limit-requests"),
+        _get_limit(headers, "x-ratelimit-limit-tokens"),
+    )
 
 
 EXAMPLE = """

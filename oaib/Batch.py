@@ -226,32 +226,50 @@ class Batch:
             )
 
         except TimeoutError:
-            self.log(f"TIMEOUT | {self.timeout}s | {kwargs}", worker=i)
-            return
+            error = f"Timeout after {self.timeout}s"
 
         except Exception as e:
-            self.log(f"PROCESSING ERROR | {e}", worker=i)
+            error = f"{type(e).__name__}: {e}"
+
+        else:
+            try:
+                headers = response.headers
+                if self._headers is None:
+                    self.log(f"HEADERS | {dict(headers)}")
+                    self._headers = headers
+
+                response = response.parse()
+                usage = getattr(response, "usage", None)
+                tokens = getattr(usage, "total_tokens", 0) or 0
+                result = response.model_dump()
+            except Exception as e:
+                error = f"{type(e).__name__}: {e}"
+            else:
+                error = None
+
+        if error is not None:
+            row = pd.DataFrame([{
+                **metadata,
+                "endpoint": endpoint,
+                **kwargs,
+                "result": None,
+                "error": error,
+            }])
+            self.__totals.requests += 1
+            self.output = pd.concat([self.output, row], ignore_index=True)
+            self.log(f"PROCESSING ERROR | {error} | {kwargs}", worker=i)
             return
 
-        headers = response.headers
-        response = response.parse()
-        tokens = response.usage.total_tokens
+        self.__totals.requests += 1
+        self.__totals.tokens += tokens
 
         row = pd.DataFrame([{
             **metadata,
             "endpoint": endpoint,
             **kwargs,
-            "result": response.model_dump()
+            "result": result,
+            "error": None,
         }])
-
-        # Store one copy of response headers - for use by Auto subclass.
-        if self._headers is None:
-            self.log(f"HEADERS | {dict(headers)}")
-            self._headers = headers
-
-        self.__totals.requests += 1
-        self.__totals.tokens += tokens
-
         self.output = pd.concat([self.output, row], ignore_index=True)
         self.log(f"PROCESSED | {kwargs}", worker=i)
 
@@ -302,15 +320,18 @@ class Batch:
                 now = time()
                 avg_tpr = (now - self._start) / (self.__totals.requests or 1)
 
-                # The RPM does not need a safety threshold because it is known
-                # in advance, but we still apply a 1% reduction to minimize
-                # going over on small timescales.
-                effective_rpm = 0.99 * self.rpm
-                effective_tpm = (1 - self.safety) * self.tpm
-                rpm_delay = 60 / self.rpm
+                effective_tpm = (
+                    (1 - self.safety) * self.tpm
+                    if self.tpm is not None else None
+                )
+                rpm_delay = 60 / self.rpm if self.rpm is not None else 0
 
                 start = now
-                while self.__current.tpm + avg_tpr >= effective_tpm and not self.__stopped.is_set():
+                while (
+                    effective_tpm is not None
+                    and self.__current.tpm + avg_tpr >= effective_tpm
+                    and not self.__stopped.is_set()
+                ):
                     self.__progress.main.set_description(
                         f"🟡 WAITING", refresh=True
                     )

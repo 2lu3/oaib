@@ -210,8 +210,10 @@ Run took 20.02s.
 
 ### Using the `Auto` class
 
-Automatically use the given TPM/RPM rate limits provided by OpenAI API
-responses.
+Automatically use the RPM/TPM rate limits provided by OpenAI API responses.
+For `gpt-4o-mini-transcribe` models, the API may provide only the RPM header,
+so `Auto` disables TPM control for those models. Other models use both limits
+when their headers are available.
 
 
 ```python
@@ -561,4 +563,8 @@ batch = Batch(azure=azure)
    initial totals (here, our limits) are used to calculate the width of the bar,
    and the `Auto` class updates these values only after the first request. The
    text percentage displays are accurate.
+
+4. Batch results include an `error` column. Successful requests have a null
+   value, while request and response-processing failures retain their metadata
+   and error message in the returned DataFrame.
 
