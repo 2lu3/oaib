@@ -23,7 +23,6 @@ class Auto(Batch):
         self.__model = None
 
     async def _process(self, *args, **kwargs):
-        # If rate limits have not been loaded from response headers yet, do so.
         if self._headers is not None and not self.__limits_loaded.is_set():
             self.rpm, self.tpm = get_limits(self._headers)
             self.log(f"LIMITS FROM OPENAI | {self.rpm} RPM | {self.tpm} TPM")
