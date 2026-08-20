@@ -563,16 +563,13 @@ batch = Batch(azure=azure)
    average number of tokens per request) drops below 90% of the limit.
 
   
-2. By default, important logs are stored at `oaib.txt`.  This can be disabled
-   using `loglevel=0`.
-
-3. There's an error with TPM/RPM progress bar display in Jupyter Notebooks for
+2. There's an error with TPM/RPM progress bar display in Jupyter Notebooks for
    the `Auto` class only. This is caused by a `tqdm.notebook` bug where only the
    initial totals (here, our limits) are used to calculate the width of the bar,
    and the `Auto` class updates these values only after the first request. The
    text percentage displays are accurate.
 
-4. Batch results include an `error` column. Successful requests have a null
+3. Batch results include an `error` column. Successful requests have a null
    value, while request and response-processing failures retain their metadata
    and error message in the returned DataFrame.
 

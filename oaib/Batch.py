@@ -4,7 +4,6 @@ import random
 import pandas as pd
 
 from typing import Literal
-from datetime import datetime
 from time import time
 from types import SimpleNamespace
 from tqdm.auto import tqdm
@@ -41,18 +40,14 @@ class Batch:
         below 90% of the limit, to prevent going over. This is necessary because
         we don't know how many tokens a response will contain before we get it.
     loglevel : int, default: `1`
-        If set to 0, suppresses the progress bar and logging output. If set to 1,
-        logs include metadata only. If set to 2, logs include both data and
-        metadata for each request.
+        If set to 0, suppresses the progress bar. If set to 1 or 2, the
+        progress bar is shown.
     timeout : int, default: `60`
         The maximum time to wait for a single request to complete, in seconds.
     api_key : str, default: `os.environ.get("OPENAI_API_KEY")`
         The API key used for authentication with the OpenAI API. If not
         provided, the class attempts to use an API_KEY constant defined
         elsewhere.
-    log_path : str, default: `"oaib.txt"`
-        The file path for logging the progress and errors of batch processing.
-        Defaults to "oaib.txt".
     **client_args
         Additional keyword arguments to pass to the OpenAI client.
     """
@@ -67,7 +62,6 @@ class Batch:
         timeout: int = 60,
         azure=None,
         api_key: str or None = None,
-        logdir: str or None = "oaib.txt",
         index: list[str] or None = None,
         ** client_kwargs
     ):
@@ -90,7 +84,6 @@ class Batch:
         self.safety = safety
         self.loglevel = loglevel
         self.timeout = timeout
-        self.logdir = logdir
         self.index = index
         self.azure = None
 
@@ -125,22 +118,6 @@ class Batch:
             lambda code, stack: create_task(self.stop(code, stack))
         )
 
-    def __clear_log(self):
-        with open(self.logdir, "w") as file:
-            file.write("")
-
-    def log(self, *messages, worker: int or None = None, loglevel: int or None = None):
-        if (loglevel or self.loglevel) > 0:
-            now = datetime.now()
-            timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
-
-            for message in messages:
-                prefix = f"WORKER {worker}" if worker else "MAIN"
-                message = " | ".join([prefix.rjust(8), timestamp, message])
-
-                with open(self.logdir, "a") as file:
-                    file.write(message + "\n")
-
     async def _cleanup(self):
         """
         Ensures the stop event is set, and all workers and processing tasks are
@@ -150,10 +127,8 @@ class Batch:
         self._tick()
 
         if self.succeeded:
-            self.log("WAITING FOR CLOCK")
             await wait([self.__clock])
         else:
-            self.log("CANCELLING ALL TASKS")
             await cancel_all({
                 self.__clock,
                 *self.__processing,
@@ -209,15 +184,8 @@ class Batch:
             if self.__stopped.is_set():
                 break
 
-    async def _process(self, request, i=None):
+    async def _process(self, request):
         endpoint, func, kwargs, metadata = request
-
-        if self.loglevel == 1:
-            log_content = f"{metadata}"
-        else:
-            log_content = f"{metadata} | {kwargs}"
-
-        self.log(f"PROCESSING | {log_content}", worker=i)
 
         try:
             [response] = await wait_for(
@@ -235,7 +203,6 @@ class Batch:
             try:
                 headers = response.headers
                 if self._headers is None:
-                    self.log(f"HEADERS | {dict(headers)}")
                     self._headers = headers
 
                 response = response.parse()
@@ -257,7 +224,6 @@ class Batch:
             }])
             self.__totals.requests += 1
             self.output = pd.concat([self.output, row], ignore_index=True)
-            self.log(f"PROCESSING ERROR | {error} | {kwargs}", worker=i)
             return
 
         self.__totals.requests += 1
@@ -271,7 +237,6 @@ class Batch:
             "error": None,
         }])
         self.output = pd.concat([self.output, row], ignore_index=True)
-        self.log(f"PROCESSED | {kwargs}", worker=i)
 
         if self._callback:
             callback = create_task(self._callback(row))
@@ -280,22 +245,18 @@ class Batch:
                 lambda _: self.__callbacks.remove(callback)
             )
 
-    def _next(self, i):
+    def _next(self):
         try:
-            self.log(f"REQUESTS: {self.__queue.qsize()}", worker=i)
             request = self.__queue.get_nowait()
             self.__queue.task_done()
 
         except QueueEmpty:
-            self.log("EMPTY QUEUE", worker=i)
-
             if self._listening:
-                self.log("LISTENING", worker=i)
                 return True
 
             return False
 
-        processing = create_task(self._process(request, i))
+        processing = create_task(self._process(request))
         self.__processing.add(processing)
         processing.add_done_callback(
             lambda _: self.__processing.remove(processing)
@@ -303,13 +264,13 @@ class Batch:
 
         return True
 
-    async def __worker(self, i):
+    async def __worker(self):
         while True:
             async with self.__lock:
                 if self.__stopped.is_set():
                     break
 
-                proceed = self._next(i)
+                proceed = self._next()
                 if not proceed:
                     break
 
@@ -357,13 +318,12 @@ class Batch:
         self._start = time()
         self._last_tick = None
 
-        self.__clear_log()
         self.__stopped.clear()
         self.__clock = create_task(self._watch())
 
         self.__workers = {
-            create_task(self.__worker(i))
-            for i in range(self.__num_workers)
+            create_task(self.__worker())
+            for _ in range(self.__num_workers)
         }
 
         silence = self.loglevel == 0
@@ -384,11 +344,6 @@ class Batch:
             dynamic_ncols=True, disable=silence,
             bar_format="{l_bar}{bar}| {n_fmt}/{total_fmt}"
         )
-
-        if self.azure:
-            self.log(
-                f"USING AZURE | {self.azure}"
-            )
 
     async def listen(self, callback=None):
         """
@@ -420,18 +375,15 @@ class Batch:
         # If the run was successful, it needs to be stopped. Finish processing
         # existing requests first.
         if not self.__stopped.is_set():
-            self.log("FINISHING PROCESSING | 5 second timeout")
             await gather(*self.__processing)
             await gather(*self.__callbacks)
             await gather(*self.__workers)
             await self.stop()
 
         if self.index:
-            self.log("INDEX | Setting index")
             self.output.set_index(self.index, inplace=True)
             self.output.sort_index(inplace=True)
 
-        self.log("RETURNING OUTPUT")
         print(f"\nRun took {time() - start:.2f}s.\n")
         return self.output
 
@@ -452,10 +404,6 @@ class Batch:
             False if the run was cancelled or interrupted, True if it completed successfully.
         """
         self.succeeded = code == 0
-
-        self.log(f"STOP EVENT | Exit code {code}")
-        if stack:
-            self.log(f"STACK INFO\n\n{stack}\n")
 
         self.__stopped.set()
         await self._cleanup()
@@ -487,8 +435,6 @@ class Batch:
 
         # Add the request to the queue.
         request = (endpoint, func, kwargs, metadata)
-        model = kwargs.get("model")
         await self.__queue.put(request)
 
         self.__totals.queued += 1
-        self.log(f"QUEUED | {model}")
