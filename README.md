@@ -14,10 +14,10 @@ API.
 
 ### Install with uv
 
-Add `oaib` to your project's dependencies:
+Add this repository's `dev` branch to your project's dependencies:
 
 ```bash
-uv add oaib
+uv add git+https://github.com/2lu3/oaib.git@dev
 ```
 
 ### Set OpenAI API Key
