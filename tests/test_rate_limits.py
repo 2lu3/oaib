@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 from oaib import Auto
@@ -74,6 +75,7 @@ async def test_auto_processes_transcription_without_tpm_header():
 
     results = await batch.run()
 
+    assert not Path("oaib.txt").exists()
     assert len(results) == 3
     assert batch.rpm == 600
     assert batch.tpm is None

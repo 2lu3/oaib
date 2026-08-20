@@ -9,9 +9,7 @@ async def test_listen():
     batch = Batch(rpm=1000, tpm=10000, workers=16)
 
     async def run():
-        batch.log("TEST | Running...")
         await sleep(10)
-        batch.log("TEST | Done. Stopping.")
         await batch.stop()
 
     task = create_task(batch.listen())

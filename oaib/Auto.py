@@ -33,7 +33,6 @@ class Auto(Batch):
             else:
                 self.rpm = rpm if rpm is not None else self.rpm
                 self.tpm = tpm if tpm is not None else self.tpm
-            self.log(f"LIMITS FROM OPENAI | {self.rpm} RPM | {self.tpm} TPM")
             self.__limits_loaded.set()
 
         return await super()._process(*args, **kwargs)
