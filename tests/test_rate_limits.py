@@ -41,11 +41,11 @@ class FakeClient:
         )
 
 
-def audio_response(text):
+def audio_response(text, headers=None):
     usage = SimpleNamespace(type="duration", seconds=1.0)
     transcription = FakeTranscription(text, usage)
-    headers = {"x-ratelimit-limit-requests": "600"}
-    return FakeRawResponse(headers, transcription)
+    response_headers = headers or {"x-ratelimit-limit-requests": "600"}
+    return FakeRawResponse(response_headers, transcription)
 
 
 def test_get_limits_allows_missing_headers():
@@ -83,6 +83,31 @@ async def test_auto_processes_transcription_without_tpm_header():
         "second",
         "third",
     ]
+
+
+async def test_auto_keeps_tpm_for_other_models():
+    headers = {
+        "x-ratelimit-limit-requests": "600",
+        "x-ratelimit-limit-tokens": "1000",
+    }
+    batch = Auto(api_key="test-key", workers=1, loglevel=0)
+    batch.client = FakeClient([
+        audio_response("first", headers),
+        audio_response("second", headers),
+    ])
+
+    for index in range(2):
+        await batch.add(
+            "audio.transcriptions.create",
+            metadata={"id": index},
+            file=b"audio",
+            model="gpt-4o-transcribe",
+        )
+
+    await batch.run()
+
+    assert batch.rpm == 600
+    assert batch.tpm == 1000
 
 
 async def test_batch_returns_transcription_failure_row():

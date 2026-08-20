@@ -211,7 +211,9 @@ Run took 20.02s.
 ### Using the `Auto` class
 
 Automatically use the RPM/TPM rate limits provided by OpenAI API responses.
-If an endpoint omits one of those headers, only the available limit is used.
+For `gpt-4o-mini-transcribe` models, the API may provide only the RPM header,
+so `Auto` disables TPM control for those models. Other models use both limits
+when their headers are available.
 
 
 ```python

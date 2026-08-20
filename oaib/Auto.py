@@ -5,6 +5,9 @@ from .utils import EXAMPLE, get_limits
 # from .config import config
 
 
+REQUEST_ONLY_RATE_LIMIT_MODEL_PREFIX = "gpt-4o-mini-transcribe"
+
+
 class Auto(Batch):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -24,11 +27,22 @@ class Auto(Batch):
 
     async def _process(self, *args, **kwargs):
         if self._headers is not None and not self.__limits_loaded.is_set():
-            self.rpm, self.tpm = get_limits(self._headers)
+            rpm, tpm = get_limits(self._headers)
+            if self.__uses_request_only_limits():
+                self.rpm, self.tpm = rpm, tpm
+            else:
+                self.rpm = rpm if rpm is not None else self.rpm
+                self.tpm = tpm if tpm is not None else self.tpm
             self.log(f"LIMITS FROM OPENAI | {self.rpm} RPM | {self.tpm} TPM")
             self.__limits_loaded.set()
 
         return await super()._process(*args, **kwargs)
+
+    def __uses_request_only_limits(self):
+        return (
+            isinstance(self.__model, str)
+            and self.__model.startswith(REQUEST_ONLY_RATE_LIMIT_MODEL_PREFIX)
+        )
 
     async def add(self, *args, **kwargs):
         model = kwargs.get("model")
